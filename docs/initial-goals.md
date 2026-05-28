@@ -1,5 +1,5 @@
 # Implementation plan ?
- 
+
 - cli
 - core
 - provider

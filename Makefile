@@ -10,6 +10,9 @@ SRC = \
 	  src/main.c \
 	  src/cli/cli.c \
 	  src/cli/cmd_run_bugs.c \
+	  src/core/defects4j.c \
+	  src/core/run_spec.c \
+	  src/core/io.c \
 
 OBJ = $(SRC:src/%.c=$(BUILD_DIR)/%.o)
 

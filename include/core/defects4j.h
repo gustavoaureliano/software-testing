@@ -9,7 +9,7 @@
 #define MAX_BUG_ID_LEN 1024
 #define MAX_CMD_OUTPUT 10240
 
-struct string_list {
+struct project_list {
 	char items[MAX_PROJECTS][MAX_PROJECT_ID_LEN];
 	size_t count;
 };
@@ -19,7 +19,7 @@ struct bug_list {
 	size_t count;
 };
 
-int defects4j_list_projects(struct string_list *out);
+int defects4j_list_projects(struct project_list *out);
 int defects4j_list_bugs(char *project_id, struct bug_list *out);
 
 #endif

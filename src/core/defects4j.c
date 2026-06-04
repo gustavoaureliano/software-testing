@@ -8,9 +8,9 @@
 #include <string.h>
 
 static int fill_bugs_list(struct bug_list *bug_list, const char *text);
-static int fill_projects_list(struct string_list *string_list, const char *text);
+static int fill_projects_list(struct project_list *string_list, const char *text);
 
-int defects4j_list_projects(struct string_list *out) {
+int defects4j_list_projects(struct project_list *out) {
 	char *args[] = {
 		"defects4j",
 		"pids",
@@ -31,9 +31,6 @@ int defects4j_list_projects(struct string_list *out) {
 	if (fill_projects_list(out, output)) {
 		fprintf(stderr, "Error parsing project list\n");
 		return 1;
-	}
-	for (size_t i = 0; i < out->count; i++) {
-		printf("text: %s\n", out->items[i]);
 	}
 	return 0;
 }
@@ -62,9 +59,6 @@ int defects4j_list_bugs(char *project_id, struct bug_list *out) {
 		fprintf(stderr, "Error parsing bugs list\n");
 		return 1;
 	};
-	for (size_t i = 0; i < out->count; i++) {
-		printf("text: %d\n", out->items[i]);
-	}
 	return 0;
 }
 
@@ -122,7 +116,7 @@ static int fill_bugs_list(struct bug_list *bug_list, const char *text) {
 	return 0;
 }
 
-static int fill_projects_list(struct string_list *string_list, const char *text) {
+static int fill_projects_list(struct project_list *string_list, const char *text) {
 	const char *p = text;
 	while (*p) {
 		if (string_list->count >= MAX_PROJECTS) {

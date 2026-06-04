@@ -66,13 +66,11 @@ int run_program_capture(char *argv[], char *output, size_t output_capacity, size
 			}
 			if (n < 0) {
 				fprintf(stderr, "Error reading, total bytes read so far: %zu\n", used);
-				return 1;;
+				return 1;
 			}
 			if (WIFEXITED(status)) {
-				printf("exit code: %d\n", WEXITSTATUS(status));
 				*exit_code = WEXITSTATUS(status);
 			} else if (WIFSIGNALED(status)) {
-				printf("killed by signal: %d\n", WTERMSIG(status));
 				// It seems that 128 + WTERMSIG is a shell convention, not sure about that
 				*exit_code = 128 + WTERMSIG(status);
 			} else {

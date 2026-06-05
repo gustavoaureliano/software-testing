@@ -10,6 +10,42 @@
 static int fill_bugs_list(struct bug_list *bug_list, const char *text);
 static int fill_projects_list(struct project_list *string_list, const char *text);
 
+// i'm not really checking if bug_id or project_id are valid
+// i'm assuming the values provided are valid and correct
+int defects4j_checkout_bug(char *project_id, int bug_id) {
+	if (project_id == NULL) { return 1; }
+	if (bug_id < 0) { return 1; }
+	char bug_id_buff[MAX_BUG_ID_LEN];
+	snprintf(bug_id_buff, MAX_BUG_ID_LEN, "%db", bug_id);
+	// checkout_dir = ./runs/Closure_1b
+	size_t checkout_dir_size = (strlen(DEFAULT_CHECKOUT_DIR) + strlen(project_id) + 1 + strlen(bug_id_buff) + 1) * sizeof(char);
+	char *checkout_dir = (char *) malloc(checkout_dir_size);
+	snprintf(checkout_dir, checkout_dir_size, "%s%s_%s", DEFAULT_CHECKOUT_DIR, project_id, bug_id_buff);
+	char *args[] = {
+		"defects4j",
+		"checkout",
+		"-p",
+		project_id,
+		"-v",
+		bug_id_buff,
+		"-w",
+		checkout_dir,
+		(char *) NULL
+	};
+	int exit_code = -1;
+	int status = run_program_capture(args, NULL, 0, NULL, &exit_code);
+	free(checkout_dir);
+	if (status) {
+		fprintf(stderr, "Error executing checkout\n");
+		return 1;
+	}
+	if (exit_code) {
+		fprintf(stderr, "Error executing checkout\n");
+		return 1;
+	}
+	return 0;
+}
+
 int defects4j_list_projects(struct project_list *out) {
 	char *args[] = {
 		"defects4j",

@@ -1,7 +1,16 @@
 CC = gcc
-CPPFLAGS = -Iinclude
-CFLAGS = -Wall -Werror -Wextra -Wpedantic -g -O0 -fsanitize=address,undefined
-LDLIBS = -fsanitize=address,undefined
+SANITIZERS = -fsanitize=address,undefined
+CFLAGS = -Wall -Werror -Wextra -Wpedantic -g -O0 $(SANITIZERS)
+
+LIBS = libcurl libcjson
+
+PKG_CONFIG ?= pkg-config
+DEPS_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(LIBS))
+DEPS_LIBS := $(shell $(PKG_CONFIG) --libs $(LIBS))
+
+CPPFLAGS = -Iinclude $(DEPS_CFLAGS)
+LDLIBS = $(DEPS_LIBS)
+LDFLAGS = $(SANITIZERS)
 
 BUILD_DIR = build
 TARGET = $(BUILD_DIR)/swt
@@ -13,17 +22,18 @@ SRC = \
 	  src/core/defects4j.c \
 	  src/core/run_spec.c \
 	  src/core/io.c \
+	  src/provider/llamacpp.c \
 
 OBJ = $(SRC:src/%.c=$(BUILD_DIR)/%.o)
 
 all: $(TARGET)
 
 $(TARGET): $(OBJ)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $^ -o $@
+	$(CC) $(LDFLAGS) $^ $(LDLIBS)  -o $@
 
 $(BUILD_DIR)/%.o: src/%.c
 	mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -r $(BUILD_DIR)
+	rm -rf $(BUILD_DIR)

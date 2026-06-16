@@ -26,14 +26,14 @@ int run_subcommand(int argc, char *argv[]) {
 	if (strcmp(cmd, "chat") == 0) {
 		struct llm_message test_message = {
 			.role = "system",
-			.content = "You are a LLM"
+			.content = "You are a LLM!"
 		};
-		struct llm_message messages[1] = {
-			test_message
+		struct llm_message messages[] = {
+			test_message,
 		};
 		char raw_response[10240];
 		struct llm_response llm_response;
-		return llm_chat("http://100.72.37.73:8080", "qwen35-9b", messages, 1, raw_response, sizeof(raw_response), &llm_response);
+		return llm_chat("http://100.72.37.73:8080", "qwen35-9b", messages, sizeof(messages) / sizeof(messages[0]), raw_response, sizeof(raw_response), &llm_response);
 	}
 
 	fprintf(stderr, "Unknown command: %s\n", cmd);

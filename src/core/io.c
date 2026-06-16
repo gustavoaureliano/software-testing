@@ -70,10 +70,7 @@ static int copy_from_fd(int fd, char *output, size_t output_capacity) {
 		size_t available;
 		if (used >= output_capacity - 1) { break; }
 		available = output_capacity - 1 - used;
-		size_t to_copy = (size_t) n;
-		if (to_copy > available) {
-			to_copy = available;
-		}
+		size_t to_copy = (size_t) n > available ? available : (size_t) n;
 		memcpy(output + used, buffer, to_copy);
 		used += to_copy;
 		if (to_copy < (size_t) n) {

@@ -2,6 +2,9 @@
 #define LLAMACPP_PROVIDER_H
 
 #include <stddef.h>
+#include <stdbool.h>
+
+#define MAX_URL_SIZE 1024
 
 struct llm_message {
 	const char *role;

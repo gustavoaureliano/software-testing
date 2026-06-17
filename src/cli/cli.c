@@ -33,7 +33,7 @@ int run_subcommand(int argc, char *argv[]) {
 		};
 		char raw_response[10240];
 		struct llm_response llm_response;
-		return llm_chat("http://100.72.37.73:8080", "qwen35-9b", messages, sizeof(messages) / sizeof(messages[0]), raw_response, sizeof(raw_response), &llm_response);
+		return llm_chat("http://192.168.0.27:8080", "qwen35-9b", messages, sizeof(messages) / sizeof(messages[0]), raw_response, sizeof(raw_response), &llm_response);
 	}
 
 	fprintf(stderr, "Unknown command: %s\n", cmd);

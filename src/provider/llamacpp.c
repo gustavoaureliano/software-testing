@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <stdbool.h>
 
 #define LLAMA_ENDPOINT_SUFFIX "/v1/chat/completions"
 
@@ -21,9 +20,9 @@ struct response_buffer {
 
 static cJSON *build_chat_request_json(const char *model, const struct llm_message *messages, size_t message_count);
 static size_t write_response_callback(char *contents, size_t size, size_t nmemb, void *userp);
-// static int copy_json_string(const cJSON  *ndode, char *dest, size_t dest_capacity);
-// static int parse_chat_response_json(const char *raw_response, struct llm_response *out);
-// static int parse_tool_calls(const cJSON *tool_calls, struct  llm_response *out);
+static int parse_chat_response_json(const char *raw_response, struct llm_response *out);
+static int copy_json_string(const cJSON  *node, char *dest, size_t dest_capacity);
+static int parse_tool_calls(const cJSON *tool_calls, struct  llm_response *out);
 
 int llm_chat( const char *base_url, const char *model, const struct llm_message *messages, size_t message_count, char *raw_response, size_t raw_response_capacity, struct llm_response *out) {
 	int ret = 1;
@@ -47,7 +46,7 @@ int llm_chat( const char *base_url, const char *model, const struct llm_message 
 		if (messages[i].content == NULL) { goto cleanup; }
 	}
 	raw_response[0] = '\0';
-	memset(out, 3, sizeof(*out));
+	memset(out, 0, sizeof(*out));
 	request_json = build_chat_request_json(model, messages, message_count);
 	if (request_json == NULL) {
 		fprintf(stderr, "Failed to build request JSON\n");
@@ -105,12 +104,113 @@ int llm_chat( const char *base_url, const char *model, const struct llm_message 
 		fprintf(stderr, "Response buffer too small\n");
 		goto cleanup;
 	}
+	if (parse_chat_response_json(response_state.data, out) != 0) {
+		fprintf(stderr, "Failed to parse response json\n");
+		goto cleanup;
+	}
 	ret = 0;
 cleanup:
 	curl_slist_free_all(headers);
 	curl_easy_cleanup(curl);
 	free(request_body);
 	cJSON_Delete(request_json);
+	return ret;
+}
+
+static int parse_tool_calls(const cJSON *tool_calls, struct  llm_response *out) {
+	if (out == NULL) { return 1; }
+	out->tool_call_count = 0;
+	if (tool_calls == NULL) { return 0; }
+	if (!cJSON_IsArray(tool_calls)) { return 1; }
+	int array_size = cJSON_GetArraySize(tool_calls);
+	for (int i = 0; i < array_size; i++) {
+		if (out->tool_call_count >= 8) { return 1; }
+		const cJSON *tool_call = cJSON_GetArrayItem(tool_calls, i);
+		const cJSON *id;
+		const cJSON *function;
+		const cJSON *name;
+		const cJSON *arguments;
+		struct llm_tool_call *out_call;
+		if (tool_call == NULL) { return 1; }
+		if (!cJSON_IsObject(tool_call)) { return 1; }
+		id = cJSON_GetObjectItemCaseSensitive(tool_call, "id");
+		if (id == NULL) { return 1; }
+		function = cJSON_GetObjectItemCaseSensitive(tool_call, "function");
+		if (function == NULL) { return 1; }
+		if (!cJSON_IsObject(function)) { return 1; }
+		name = cJSON_GetObjectItemCaseSensitive(function, "name");
+		if (name == NULL) { return 1; }
+		arguments = cJSON_GetObjectItemCaseSensitive(function, "arguments");
+		if (arguments == NULL) { return 1; }
+		out_call = &out->tool_calls[out->tool_call_count];
+		if (copy_json_string(id, out_call->id, sizeof(out_call->id)) != 0) {
+			return 1;
+		}
+		if (copy_json_string(name, out_call->name, sizeof(out_call->name)) != 0) {
+			return 1;
+		}
+		if (copy_json_string(arguments, out_call->arguments, sizeof(out_call->arguments)) != 0) {
+			return 1;
+		}
+		out->tool_call_count++;
+	}
+	return 0;
+}
+
+static int copy_json_string(const cJSON  *node, char *dest, size_t dest_capacity) {
+	if (node == NULL) { return 1; }
+	if (dest == NULL) { return 1; }
+	if (dest_capacity == 0) { return 1; }
+	if (!cJSON_IsString(node)) { return 1; }
+	if (node->valuestring == NULL) { return 1; }
+	size_t available = dest_capacity - 1;
+	size_t len = strlen(node->valuestring);
+	size_t to_copy = len > available ? available : len;
+	memcpy(dest, node->valuestring, to_copy);
+	dest[to_copy] = '\0';
+	return 0;
+}
+
+static int parse_chat_response_json(const char *raw_response, struct llm_response *out) {
+	int ret = 1;
+	cJSON *root;
+	cJSON *choices;
+	cJSON *choice;
+	cJSON *message;
+	cJSON *content;
+	cJSON *tool_calls;
+	// cJSON *role;
+	if (raw_response == NULL) { return 1; }
+	if (out == NULL) { return 1; }
+	memset(out, 0, sizeof(*out));
+	if ((root = cJSON_Parse(raw_response)) == NULL) { return 1; }
+	choices = cJSON_GetObjectItemCaseSensitive(root, "choices");
+	if (choices == NULL) { goto cleanup; }
+	if (!cJSON_IsArray(choices)) { goto cleanup; }
+	choice = cJSON_GetArrayItem(choices, 0);
+	if (choice == NULL) { goto cleanup; }
+	if (!cJSON_IsObject(choice)) { goto cleanup; }
+	message = cJSON_GetObjectItemCaseSensitive(choice, "message");
+	if (message == NULL) { goto cleanup; }
+	if (!cJSON_IsObject(message)) { goto cleanup; }
+	content = cJSON_GetObjectItemCaseSensitive(message, "content");
+	if (content == NULL) {
+	} else if (cJSON_IsNull(content)) {
+	} else if (cJSON_IsString(content) && content->valuestring != NULL) {
+		if (copy_json_string(content, out->content, sizeof(out->content)) != 0) {
+			goto cleanup;
+		}
+		out->has_content = true;
+	} else {
+		goto cleanup;
+	}
+	tool_calls = cJSON_GetObjectItemCaseSensitive(message, "tool_calls");
+	if (parse_tool_calls(tool_calls, out) != 0) { goto cleanup; }
+	if (!out->has_content && out->tool_call_count == 0) { goto cleanup; }
+	printf("content: \n%s\n", out->content);
+	ret = 0;
+cleanup:
+	cJSON_Delete(root);
 	return ret;
 }
 
@@ -141,7 +241,7 @@ static size_t write_response_callback(char *contents, size_t size, size_t nmemb,
 
 static cJSON *build_chat_request_json(const char *model, const struct llm_message *messages, size_t message_count) {
 	cJSON *root = NULL;
-	cJSON * messages_array = NULL;
+	cJSON *messages_array = NULL;
 
 	if (model == NULL) { return NULL; }
 	if (messages == NULL) { return NULL; }

@@ -21,7 +21,7 @@ struct llm_response {
 	char content[8192];
 	struct llm_tool_call tool_calls[8];
 	size_t tool_call_count;
-	int has_content;
+	bool has_content;
 };
 
 int llm_chat(

@@ -24,16 +24,36 @@ int run_subcommand(int argc, char *argv[]) {
 	}
 
 	if (strcmp(cmd, "chat") == 0) {
-		struct llm_message test_message = {
-			.role = "system",
-			.content = "You are a LLM!"
-		};
 		struct llm_message messages[] = {
-			test_message,
+			{
+				.role = "system",
+				.content = "You are a tool-using assistant. Do not ask follow-up questions. If a suitable tools is available, you must call it."
+			},
+			{
+				.role = "user",
+				.content = "Read the file README.md by calling the available tool now. Do not answer in natural language."
+			}
 		};
-		char raw_response[10240];
+		char raw_response[102400];
+		struct llm_tool_definition tools[] = {
+			{
+				.name = "read_file",
+				.description = "Read a file from the workspace",
+				.parameters_json =
+					"{"
+						"\"type\":\"object\","
+						"\"properties\":{"
+							"\"path\":{"
+								"\"type\":\"string\","
+								"\"description\":\"Path to the file to read\""
+							"}"
+						"},"
+						"\"required\":[\"path\"]"
+					"}"
+			}
+		};
 		struct llm_response llm_response;
-		return llm_chat("http://192.168.0.27:8080", "qwen35-9b", messages, sizeof(messages) / sizeof(messages[0]), raw_response, sizeof(raw_response), &llm_response);
+		return llm_chat("http://100.72.37.73:8080", "qwen35-9b", messages, sizeof(messages) / sizeof(messages[0]), tools, sizeof(tools)/sizeof(tools[0]), LLM_TOOL_CHOICE_REQUIRED, raw_response, sizeof(raw_response), &llm_response);
 	}
 
 	fprintf(stderr, "Unknown command: %s\n", cmd);

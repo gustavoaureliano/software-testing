@@ -4,7 +4,7 @@
 int main(int argc, char *argv[]) {
 	int result;
 	CURLcode curl_result;
-	curl_result = curl_global_init(CURL_GLOBAL_ALL);
+	curl_result = curl_global_init(CURL_GLOBAL_DEFAULT);
 	if (curl_result != CURLE_OK) {
 		return (int)curl_result;
 	}

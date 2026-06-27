@@ -18,13 +18,15 @@ struct response_buffer {
 	bool truncated;
 };
 
-static cJSON *build_chat_request_json(const char *model, const struct llm_message *messages, size_t message_count);
+static cJSON *build_chat_request_json(const char *model, const struct llm_message *messages, size_t message_count, const struct llm_tool_definition *tools, size_t tool_count, enum llm_tool_choice_mode tool_choice);
 static size_t write_response_callback(char *contents, size_t size, size_t nmemb, void *userp);
 static int parse_chat_response_json(const char *raw_response, struct llm_response *out);
 static int copy_json_string(const cJSON  *node, char *dest, size_t dest_capacity);
 static int parse_tool_calls(const cJSON *tool_calls, struct  llm_response *out);
+static cJSON *build_tools_json(const struct llm_tool_definition *tools, size_t tool_count);
+static const char *tool_choice_mode_to_string(enum llm_tool_choice_mode mode);
 
-int llm_chat( const char *base_url, const char *model, const struct llm_message *messages, size_t message_count, char *raw_response, size_t raw_response_capacity, struct llm_response *out) {
+int llm_chat(const char *base_url, const char *model, const struct llm_message *messages, size_t message_count, const struct llm_tool_definition *tools, size_t tool_count, enum llm_tool_choice_mode tool_choice, char *raw_response, size_t raw_response_capacity, struct llm_response *out) {
 	int ret = 1;
 	cJSON *request_json = NULL;
 	char *request_body = NULL;
@@ -45,9 +47,16 @@ int llm_chat( const char *base_url, const char *model, const struct llm_message 
 		if (messages[i].role == NULL) { goto cleanup; }
 		if (messages[i].content == NULL) { goto cleanup; }
 	}
+	if (tools == NULL && tool_count > 0) { goto cleanup; }
+	if (tool_choice != LLM_TOOL_CHOICE_NONE && tool_count == 0) { goto cleanup; }
+	for (size_t i = 0; i < tool_count; i++) {
+		if (tools[i].name == NULL) { goto cleanup; }
+		if (tools[i].description == NULL) { goto cleanup; }
+		if (tools[i].parameters_json == NULL) { goto cleanup; }
+	}
 	raw_response[0] = '\0';
 	memset(out, 0, sizeof(*out));
-	request_json = build_chat_request_json(model, messages, message_count);
+	request_json = build_chat_request_json(model, messages, message_count, tools, tool_count, tool_choice);
 	if (request_json == NULL) {
 		fprintf(stderr, "Failed to build request JSON\n");
 		goto cleanup;
@@ -57,7 +66,7 @@ int llm_chat( const char *base_url, const char *model, const struct llm_message 
 		fprintf(stderr, "Failed to print request JSON\n");
 		goto cleanup;
 	}
-	printf("request_json: \n%s\n", request_body);
+	// printf("request_json: \n%s\n", request_body);
 	if (snprintf(url, MAX_URL_SIZE, "%s%s", base_url, LLAMA_ENDPOINT_SUFFIX) >= MAX_URL_SIZE) {
 		fprintf(stderr, "URL too long\n");
 		goto cleanup;
@@ -78,13 +87,31 @@ int llm_chat( const char *base_url, const char *model, const struct llm_message 
 		fprintf(stderr, "Failed to create curl request headers\n");
 		goto cleanup;
 	}
-	curl_easy_setopt(curl, CURLOPT_URL, url);
-	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+	if ((curl_result = curl_easy_setopt(curl, CURLOPT_URL, url)) != CURLE_OK) {
+		fprintf(stderr, "Failed to set CURLOPT_URL: %s\n", curl_easy_strerror(curl_result));
+		goto cleanup;
+	}
+	if ((curl_result = curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers)) != CURLE_OK) {
+		fprintf(stderr, "Failed to set CURLOPT_HTTPHEADER: %s\n", curl_easy_strerror(curl_result));
+		goto cleanup;
+	}
 	// curl_easy_setopt(curl, CURLOPT_POST, 1L);
-	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_response_callback);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&response_state);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
+	if ((curl_result = curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body)) != CURLE_OK) {
+		fprintf(stderr, "Failed to set CURLOPT_POSTFIELDS: %s\n", curl_easy_strerror(curl_result));
+		goto cleanup;
+	}
+	if ((curl_result = curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_response_callback)) != CURLE_OK) {
+		fprintf(stderr, "Failed to set CURLOPT_WRITEFUNCTION: %s\n", curl_easy_strerror(curl_result));
+		goto cleanup;
+	}
+	if ((curl_result = curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&response_state)) != CURLE_OK) {
+		fprintf(stderr, "Failed to set CURLOPT_WRITEDATA: %s\n", curl_easy_strerror(curl_result));
+		goto cleanup;
+	}
+	if ((curl_result = curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L)) != CURLE_OK) {
+		fprintf(stderr, "Failed to set CURLOPT_TIMEOUT: %s\n", curl_easy_strerror(curl_result));
+		goto cleanup;
+	}
 	curl_result = curl_easy_perform(curl);
 	raw_response[response_state.used] = '\0';
 	if (curl_result != CURLE_OK) {
@@ -115,6 +142,63 @@ cleanup:
 	free(request_body);
 	cJSON_Delete(request_json);
 	return ret;
+}
+
+static const char *tool_choice_mode_to_string(enum llm_tool_choice_mode mode) {
+	switch (mode) {
+		case LLM_TOOL_CHOICE_NONE:
+			return NULL;
+		case LLM_TOOL_CHOICE_AUTO:
+			return "auto";
+		case LLM_TOOL_CHOICE_REQUIRED:
+			return "required";
+		default:
+			return NULL;
+	}
+}
+
+static cJSON *build_tools_json(const struct llm_tool_definition *tools, size_t tool_count) {
+	cJSON *tools_array = NULL;
+	if (tool_count == 0) { return NULL; }
+	if (tools == NULL) { return NULL; }
+	tools_array = cJSON_CreateArray();
+	if (tools_array == NULL) { return NULL; }
+	for (size_t i = 0; i < tool_count; i++) {
+		cJSON *tool = NULL;
+		cJSON *function = NULL;
+		cJSON *parameters = NULL;
+		if (tools[i].name == NULL) { goto cleanup; }
+		if (tools[i].description == NULL) { goto cleanup; }
+		if (tools[i].parameters_json == NULL) { goto cleanup; }
+		if ((tool = cJSON_CreateObject()) == NULL) { goto cleanup; }
+		if (cJSON_AddStringToObject(tool, "type", "function") == NULL) {
+			goto cleanup_tool;
+		}
+		if ((function = cJSON_AddObjectToObject(tool, "function")) == NULL) {
+			goto cleanup_tool;
+		}
+		if (cJSON_AddStringToObject(function, "name", tools[i].name) == NULL) {
+			goto cleanup_tool;
+		}
+		if (cJSON_AddStringToObject(function, "description", tools[i].description) == NULL) {
+			goto cleanup_tool;
+		}
+		if ((parameters = cJSON_Parse(tools[i].parameters_json)) == NULL) {
+			goto cleanup_tool;
+		}
+		if (!cJSON_AddItemToObject(function, "parameters", parameters)) {
+			goto cleanup_tool;
+		}
+		if (!cJSON_AddItemToArray(tools_array, tool)) { goto cleanup_tool; }
+		continue;
+cleanup_tool:
+		cJSON_Delete(tool);
+		goto cleanup;
+	}
+	return tools_array;
+cleanup:
+	cJSON_Delete(tools_array);
+	return NULL;
 }
 
 static int parse_tool_calls(const cJSON *tool_calls, struct  llm_response *out) {
@@ -239,9 +323,11 @@ static size_t write_response_callback(char *contents, size_t size, size_t nmemb,
 }
 
 
-static cJSON *build_chat_request_json(const char *model, const struct llm_message *messages, size_t message_count) {
+static cJSON *build_chat_request_json(const char *model, const struct llm_message *messages, size_t message_count, const struct llm_tool_definition *tools, size_t tool_count, enum llm_tool_choice_mode tool_choice) {
 	cJSON *root = NULL;
 	cJSON *messages_array = NULL;
+	cJSON *tools_array = NULL;
+	const char *tool_choice_string = NULL;
 
 	if (model == NULL) { return NULL; }
 	if (messages == NULL) { return NULL; }
@@ -268,6 +354,20 @@ static cJSON *build_chat_request_json(const char *model, const struct llm_messag
 cleanup_message:
 		cJSON_Delete(message);
 		goto cleanup;
+	}
+	if (tool_count > 0) {
+		tools_array = build_tools_json(tools, tool_count);
+		if (tools_array == NULL) { goto cleanup; }
+		if (!cJSON_AddItemToObject(root, "tools", tools_array)) {
+			cJSON_Delete(tools_array);
+			goto cleanup;
+		}
+		tools_array = NULL;
+		if ((tool_choice_string = tool_choice_mode_to_string(tool_choice)) != NULL) {
+			if (cJSON_AddStringToObject(root, "tool_choice", tool_choice_string) == NULL) {
+				goto cleanup;
+			}
+		}
 	}
 	return root;
 cleanup:

@@ -3,12 +3,18 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #define MAX_URL_SIZE 1024
 
 struct llm_message {
 	const char *role;
 	const char *content;
+};
+
+struct llm_message_list {
+	const struct llm_message *items;
+	size_t count;
 };
 
 struct llm_tool_call {
@@ -36,13 +42,16 @@ struct llm_tool_definition {
 	const char *parameters_json;
 };
 
+struct llm_toolset {
+	const struct llm_tool_definition *items;
+	size_t count;
+};
+
 int llm_chat(
 		const char *base_url,
 		const char *model,
-		const struct llm_message *messages,
-		size_t message_count,
-		const struct llm_tool_definition *tools,
-		size_t tool_count,
+		const struct llm_message_list messages,
+		const struct llm_toolset toolset,
 		enum llm_tool_choice_mode tool_choice,
 		char *raw_response,
 		size_t raw_response_capacity,

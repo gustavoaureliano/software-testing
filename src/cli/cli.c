@@ -34,6 +34,10 @@ int run_subcommand(int argc, char *argv[]) {
 				.content = "Read the file README.md by calling the available tool now. Do not answer in natural language."
 			}
 		};
+		struct llm_message_list message_list = {
+			.items = messages,
+			.count = sizeof(messages)/sizeof(messages[0])
+		};
 		char raw_response[102400];
 		struct llm_tool_definition tools[] = {
 			{
@@ -52,8 +56,12 @@ int run_subcommand(int argc, char *argv[]) {
 					"}"
 			}
 		};
+		struct llm_toolset toolset  = {
+			.items = tools,
+			.count = sizeof(tools)/sizeof(tools[0])
+		};
 		struct llm_response llm_response;
-		return llm_chat("http://100.72.37.73:8080", "qwen35-9b", messages, sizeof(messages) / sizeof(messages[0]), tools, sizeof(tools)/sizeof(tools[0]), LLM_TOOL_CHOICE_REQUIRED, raw_response, sizeof(raw_response), &llm_response);
+		return llm_chat("http://100.72.37.73:8080", "qwen35-9b", message_list, toolset, LLM_TOOL_CHOICE_REQUIRED, raw_response, sizeof(raw_response), &llm_response);
 	}
 
 	fprintf(stderr, "Unknown command: %s\n", cmd);

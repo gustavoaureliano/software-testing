@@ -1,6 +1,6 @@
-#include <curl/curl.h>
 #include <string.h>
 #include <tools/schema.h>
+#include <tools/schema_internal.h>
 #include <cjson/cJSON.h>
 #include <stdlib.h>
 
@@ -19,6 +19,7 @@ struct llm_tool_schema *llm_tool_schema_create_object(void) {
 	cJSON *properties;
 	cJSON *required;
 	if ((root = cJSON_CreateObject()) == NULL) {
+		free(schema);
 		return NULL;
 	}
 	if (cJSON_AddStringToObject(root, "type", "object") == NULL) {
@@ -43,8 +44,14 @@ struct llm_tool_schema *llm_tool_schema_create_object(void) {
 	};
 	return schema;
 cleanup:
-	cJSON_Delete(root);
+	llm_tool_schema_destroy(schema);
 	return NULL;
+}
+
+cJSON *llm_tool_schema_dup_json(const struct llm_tool_schema *schema) {
+	if (schema == NULL) { return NULL; }
+	if (schema->root == NULL) { return NULL; }
+	return cJSON_Duplicate(schema->root, cJSON_True);
 }
 
 int llm_tool_schema_add_string_property(struct llm_tool_schema *schema, const char *name, const char *description, bool required) {
@@ -56,7 +63,7 @@ int llm_tool_schema_add_integer_property(struct llm_tool_schema *schema, const c
 }
 
 int llm_tool_schema_add_bool_property(struct llm_tool_schema *schema, const char *name, const char *description, bool required) {
-	return llm_tool_schema_add_property_type(schema, name, description, required, "bool");
+	return llm_tool_schema_add_property_type(schema, name, description, required, "boolean");
 }
 
 static int llm_tool_schema_add_property_type(struct llm_tool_schema *schema, const char *name, const char *description, bool required, const char *type) {
@@ -66,9 +73,9 @@ static int llm_tool_schema_add_property_type(struct llm_tool_schema *schema, con
 	if (schema->properties == NULL) { return 1; }
 	if (schema->required == NULL) { return 1; }
 	if (name == NULL) { return 1; }
-	if (strlen(name) <= 0) { return 1; }
+	if (strlen(name) == 0) { return 1; }
 	if (description == NULL) { return 1; }
-	if (strlen(description) <= 0) { return 1; }
+	if (strlen(description) == 0) { return 1; }
 	if ((property = cJSON_CreateObject()) == NULL) {
 		return 1;
 	}
@@ -101,5 +108,7 @@ cleanup:
 }
 
 void llm_tool_schema_destroy(struct llm_tool_schema *schema) {
+	if (schema == NULL) { return; }
+	cJSON_Delete(schema->root);
 	free(schema);
 }

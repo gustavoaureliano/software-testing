@@ -8,7 +8,7 @@ PKG_CONFIG ?= pkg-config
 DEPS_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(LIBS))
 DEPS_LIBS := $(shell $(PKG_CONFIG) --libs $(LIBS))
 
-CPPFLAGS = -Iinclude $(DEPS_CFLAGS)
+CPPFLAGS = -Iinclude -Isrc $(DEPS_CFLAGS)
 LDLIBS = $(DEPS_LIBS)
 LDFLAGS = $(SANITIZERS)
 

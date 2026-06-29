@@ -1,5 +1,6 @@
 #include <provider/llamacpp.h>
 #include <tools/schema.h>
+#include "tools/schema_internal.h"
 #include <tools/registry.h>
 #include <curl/curl.h>
 #include <curl/easy.h>
@@ -17,12 +18,6 @@ struct response_buffer {
 	size_t capacity;
 	size_t used;
 	bool truncated;
-};
-
-struct llm_tool_schema {
-	cJSON *root;
-	cJSON *properties;
-	cJSON *required;
 };
 
 static cJSON *build_chat_request_json(const char *model, const struct llm_message_list messages, const struct tool_registry registry, enum llm_tool_choice_mode tool_choice);
@@ -190,10 +185,8 @@ static cJSON *build_tools_json(const struct tool_registry registry) {
 		if (cJSON_AddStringToObject(function, "description", registry.items[i].definition.description) == NULL) {
 			goto cleanup_tool;
 		}
-		parameters = registry.items[i].definition.parameters->root;
-		// if ((parameters = cJSON_Parse(registry.items[i].definition.parameters[0].root)) == NULL) {
-		// 	goto cleanup_tool;
-		// }
+		parameters = llm_tool_schema_dup_json(registry.items[i].definition.parameters);
+		if (parameters == NULL) { goto cleanup_tool; }
 		if (!cJSON_AddItemToObject(function, "parameters", parameters)) {
 			goto cleanup_tool;
 		}

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <provider/llamacpp.h>
+#include <tools/schema.h>
 
 int print_general_help(const char *program);
 
@@ -39,29 +40,46 @@ int run_subcommand(int argc, char *argv[]) {
 			.count = sizeof(messages)/sizeof(messages[0])
 		};
 		char raw_response[102400];
+		struct llm_tool_schema *parameters = llm_tool_schema_create_object();
+		if (parameters == NULL) {
+			fprintf(stderr, "Failed to create parameters object!\n");
+		}
+		if (llm_tool_schema_add_string_property(parameters, "path", "Path to the file to read", true) != 0) {
+
+			fprintf(stderr, "Failed to add string property to parameters object!\n");
+		}
 		struct llm_tool_definition tools[] = {
 			{
 				.name = "read_file",
 				.description = "Read a file from the workspace",
-				.parameters_json =
-					"{"
-						"\"type\":\"object\","
-						"\"properties\":{"
-							"\"path\":{"
-								"\"type\":\"string\","
-								"\"description\":\"Path to the file to read\""
-							"}"
-						"},"
-						"\"required\":[\"path\"]"
-					"}"
+				.parameters = parameters
+				// .parameters_json =
+				// 	"{"
+				// 		"\"type\":\"object\","
+				// 		"\"properties\":{"
+				// 			"\"path\":{"
+				// 				"\"type\":\"string\","
+				// 				"\"description\":\"Path to the file to read\""
+				// 			"}"
+				// 		"},"
+				// 		"\"required\":[\"path\"]"
+				// 	"}"
 			}
 		};
-		struct llm_toolset toolset  = {
-			.items = tools,
-			.count = sizeof(tools)/sizeof(tools[0])
+		struct tool_registry_entry entries[] = {
+			{
+			.definition = tools[0],
+			.handler = NULL
+			}
+		};
+		struct tool_registry registry = {
+			.items = entries,
+			.count = sizeof(entries)/sizeof(entries[0])
 		};
 		struct llm_response llm_response;
-		return llm_chat("http://100.72.37.73:8080", "qwen35-9b", message_list, toolset, LLM_TOOL_CHOICE_REQUIRED, raw_response, sizeof(raw_response), &llm_response);
+		int ret = llm_chat("http://100.72.37.73:8080", "qwen35-9b", message_list, registry, LLM_TOOL_CHOICE_REQUIRED, raw_response, sizeof(raw_response), &llm_response);
+		llm_tool_schema_destroy(parameters);
+		return ret;
 	}
 
 	fprintf(stderr, "Unknown command: %s\n", cmd);

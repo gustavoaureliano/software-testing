@@ -23,6 +23,7 @@ SRC = \
 	  src/core/run_spec.c \
 	  src/core/io.c \
 	  src/provider/llamacpp.c \
+	  src/tools/schema.c \
 
 OBJ = $(SRC:src/%.c=$(BUILD_DIR)/%.o)
 

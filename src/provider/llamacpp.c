@@ -1,7 +1,8 @@
 #include <provider/llamacpp.h>
+#include <tools/schema.h>
+#include <tools/registry.h>
 #include <curl/curl.h>
 #include <curl/easy.h>
-#include <curl/typecheck-gcc.h>
 #include <cjson/cJSON.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -18,15 +19,21 @@ struct response_buffer {
 	bool truncated;
 };
 
-static cJSON *build_chat_request_json(const char *model, const struct llm_message_list messages, const struct llm_toolset toolset, enum llm_tool_choice_mode tool_choice);
+struct llm_tool_schema {
+	cJSON *root;
+	cJSON *properties;
+	cJSON *required;
+};
+
+static cJSON *build_chat_request_json(const char *model, const struct llm_message_list messages, const struct tool_registry registry, enum llm_tool_choice_mode tool_choice);
 static size_t write_response_callback(char *contents, size_t size, size_t nmemb, void *userp);
 static int parse_chat_response_json(const char *raw_response, struct llm_response *out);
 static int copy_json_string(const cJSON  *node, char *dest, size_t dest_capacity);
 static int parse_tool_calls(const cJSON *tool_calls, struct  llm_response *out);
-static cJSON *build_tools_json(const struct llm_toolset toolset);
+static cJSON *build_tools_json(const struct tool_registry registry);
 static const char *tool_choice_mode_to_string(enum llm_tool_choice_mode mode);
 
-int llm_chat(const char *base_url, const char *model, const struct llm_message_list messages, const struct llm_toolset toolset, enum llm_tool_choice_mode tool_choice, char *raw_response, size_t raw_response_capacity, struct llm_response *out) {
+int llm_chat(const char *base_url, const char *model, const struct llm_message_list messages, const struct tool_registry registry, enum llm_tool_choice_mode tool_choice, char *raw_response, size_t raw_response_capacity, struct llm_response *out) {
 	int ret = 1;
 	cJSON *request_json = NULL;
 	char *request_body = NULL;
@@ -47,16 +54,16 @@ int llm_chat(const char *base_url, const char *model, const struct llm_message_l
 		if (messages.items[i].role == NULL) { goto cleanup; }
 		if (messages.items[i].content == NULL) { goto cleanup; }
 	}
-	if (toolset.count > 0 && toolset.items == NULL) { goto cleanup; }
-	if (tool_choice != LLM_TOOL_CHOICE_NONE && toolset.count == 0) { goto cleanup; }
-	for (size_t i = 0; i < toolset.count; i++) {
-		if (toolset.items[i].name == NULL) { goto cleanup; }
-		if (toolset.items[i].description == NULL) { goto cleanup; }
-		if (toolset.items[i].parameters_json == NULL) { goto cleanup; }
+	if (registry.count > 0 && registry.items == NULL) { goto cleanup; }
+	if (tool_choice != LLM_TOOL_CHOICE_NONE && registry.count == 0) { goto cleanup; }
+	for (size_t i = 0; i < registry.count; i++) {
+		if (registry.items[i].definition.name == NULL) { goto cleanup; }
+		if (registry.items[i].definition.description == NULL) { goto cleanup; }
+		if (registry.items[i].definition.parameters == NULL) { goto cleanup; }
 	}
 	raw_response[0] = '\0';
 	memset(out, 0, sizeof(*out));
-	request_json = build_chat_request_json(model, messages, toolset, tool_choice);
+	request_json = build_chat_request_json(model, messages, registry, tool_choice);
 	if (request_json == NULL) {
 		fprintf(stderr, "Failed to build request JSON\n");
 		goto cleanup;
@@ -66,7 +73,7 @@ int llm_chat(const char *base_url, const char *model, const struct llm_message_l
 		fprintf(stderr, "Failed to print request JSON\n");
 		goto cleanup;
 	}
-	// printf("request_json: \n%s\n", request_body);
+	printf("request_json: \n%s\n", request_body);
 	if (snprintf(url, MAX_URL_SIZE, "%s%s", base_url, LLAMA_ENDPOINT_SUFFIX) >= MAX_URL_SIZE) {
 		fprintf(stderr, "URL too long\n");
 		goto cleanup;
@@ -157,19 +164,19 @@ static const char *tool_choice_mode_to_string(enum llm_tool_choice_mode mode) {
 	}
 }
 
-static cJSON *build_tools_json(const struct llm_toolset toolset) {
+static cJSON *build_tools_json(const struct tool_registry registry) {
 	cJSON *tools_array = NULL;
-	if (toolset.items == NULL) { return NULL; }
-	if (toolset.count == 0) { return NULL; }
+	if (registry.items == NULL) { return NULL; }
+	if (registry.count == 0) { return NULL; }
 	tools_array = cJSON_CreateArray();
 	if (tools_array == NULL) { return NULL; }
-	for (size_t i = 0; i < toolset.count; i++) {
+	for (size_t i = 0; i < registry.count; i++) {
 		cJSON *tool = NULL;
 		cJSON *function = NULL;
 		cJSON *parameters = NULL;
-		if (toolset.items[i].name == NULL) { goto cleanup; }
-		if (toolset.items[i].description == NULL) { goto cleanup; }
-		if (toolset.items[i].parameters_json == NULL) { goto cleanup; }
+		if (registry.items[i].definition.name == NULL) { goto cleanup; }
+		if (registry.items[i].definition.description == NULL) { goto cleanup; }
+		if (registry.items[i].definition.parameters == NULL) { goto cleanup; }
 		if ((tool = cJSON_CreateObject()) == NULL) { goto cleanup; }
 		if (cJSON_AddStringToObject(tool, "type", "function") == NULL) {
 			goto cleanup_tool;
@@ -177,15 +184,16 @@ static cJSON *build_tools_json(const struct llm_toolset toolset) {
 		if ((function = cJSON_AddObjectToObject(tool, "function")) == NULL) {
 			goto cleanup_tool;
 		}
-		if (cJSON_AddStringToObject(function, "name", toolset.items[i].name) == NULL) {
+		if (cJSON_AddStringToObject(function, "name", registry.items[i].definition.name) == NULL) {
 			goto cleanup_tool;
 		}
-		if (cJSON_AddStringToObject(function, "description", toolset.items[i].description) == NULL) {
+		if (cJSON_AddStringToObject(function, "description", registry.items[i].definition.description) == NULL) {
 			goto cleanup_tool;
 		}
-		if ((parameters = cJSON_Parse(toolset.items[i].parameters_json)) == NULL) {
-			goto cleanup_tool;
-		}
+		parameters = registry.items[i].definition.parameters->root;
+		// if ((parameters = cJSON_Parse(registry.items[i].definition.parameters[0].root)) == NULL) {
+		// 	goto cleanup_tool;
+		// }
 		if (!cJSON_AddItemToObject(function, "parameters", parameters)) {
 			goto cleanup_tool;
 		}
@@ -323,7 +331,7 @@ static size_t write_response_callback(char *contents, size_t size, size_t nmemb,
 }
 
 
-static cJSON *build_chat_request_json(const char *model, const struct llm_message_list messages, const struct llm_toolset toolset, enum llm_tool_choice_mode tool_choice) {
+static cJSON *build_chat_request_json(const char *model, const struct llm_message_list messages, const struct tool_registry registry, enum llm_tool_choice_mode tool_choice) {
 	cJSON *root = NULL;
 	cJSON *messages_array = NULL;
 	cJSON *tools_array = NULL;
@@ -355,8 +363,8 @@ cleanup_message:
 		cJSON_Delete(message);
 		goto cleanup;
 	}
-	if (toolset.count > 0) {
-		tools_array = build_tools_json(toolset);
+	if (registry.count > 0) {
+		tools_array = build_tools_json(registry);
 		if (tools_array == NULL) { goto cleanup; }
 		if (!cJSON_AddItemToObject(root, "tools", tools_array)) {
 			cJSON_Delete(tools_array);

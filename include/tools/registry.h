@@ -16,7 +16,11 @@ struct tool_result {
 	bool is_error;
 };
 
-typedef int (*tool_handler_fn)(const char *arguments_json, struct tool_result *out);
+struct tool_context {
+	const char *workspace_root;
+};
+
+typedef int (*tool_handler_fn)(const char *arguments_json, struct tool_context context, struct tool_result *out);
 
 struct tool_registry_entry {
 	struct llm_tool_definition definition;
@@ -28,6 +32,6 @@ struct tool_registry {
 	size_t count;
 };
 
-const struct tool_registry_entry *tool_registry_find(const char *name);
+const struct tool_registry_entry *tool_registry_find(struct tool_registry registry, const char *name);
 
  #endif

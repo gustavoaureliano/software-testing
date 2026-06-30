@@ -24,6 +24,8 @@ SRC = \
 	  src/core/io.c \
 	  src/provider/llamacpp.c \
 	  src/tools/schema.c \
+	  src/tools/registry.c \
+	  src/tools/dispatch.c \
 
 OBJ = $(SRC:src/%.c=$(BUILD_DIR)/%.o)
 

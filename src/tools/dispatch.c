@@ -5,13 +5,12 @@
 #include <tools/dispatch.h>
 #include <unistd.h>
 
-#define MAX_PATH 8192
-
 int dispatch_tool_call(struct tool_registry registry, struct llm_tool_call *call, struct tool_result *out) {
 	if (registry.items == NULL) { return 1; }
 	if (registry.count == 0) { return 1; }
 	if (call == NULL) { return 1; }
 	if (strlen(call->name) == 0) { return 1; }
+	if (out == NULL) { return 1; }
 	const struct tool_registry_entry *tool_entry = tool_registry_find(registry, call->name);
 	if (tool_entry == NULL) { return 1; }
 	tool_handler_fn handler = tool_entry->handler;

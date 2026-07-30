@@ -77,7 +77,7 @@ int run_subcommand(int argc, char *argv[]) {
 			.count = sizeof(entries)/sizeof(entries[0])
 		};
 		struct llm_response llm_response;
-		int ret = llm_chat("http://100.72.37.73:8080", "qwen35-9b", message_list, registry, LLM_TOOL_CHOICE_REQUIRED, raw_response, sizeof(raw_response), &llm_response);
+		int ret = llm_chat("http://localhost:8080", "qwen35-9b", message_list, registry, LLM_TOOL_CHOICE_REQUIRED, raw_response, sizeof(raw_response), &llm_response);
 		llm_tool_schema_destroy(parameters);
 		return ret;
 	}

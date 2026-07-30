@@ -26,6 +26,7 @@ SRC = \
 	  src/tools/schema.c \
 	  src/tools/registry.c \
 	  src/tools/dispatch.c \
+	  src/tools/handlers/read_file.c \
 
 OBJ = $(SRC:src/%.c=$(BUILD_DIR)/%.o)
 

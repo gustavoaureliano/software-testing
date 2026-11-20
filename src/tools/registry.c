@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 #include <tools/registry.h>
 
@@ -14,5 +15,13 @@ const struct tool_registry_entry *tool_registry_find(struct tool_registry regist
 		}
 	}
 	return NULL;
+}
+
+void tool_result_set_error(struct tool_result *out, const char *message) {
+	if (out == NULL) { return; }
+	out->content[0] = '\0';
+	out->is_error = true;
+	if (message == NULL) { return; }
+	snprintf(out->content, sizeof(out->content), "%s", message);
 }
 

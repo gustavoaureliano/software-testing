@@ -26,7 +26,14 @@ SRC = \
 	  src/tools/schema.c \
 	  src/tools/registry.c \
 	  src/tools/dispatch.c \
+	  src/tools/workspace.c \
 	  src/tools/handlers/read_file.c \
+	  src/tools/handlers/list_files.c \
+	  src/tools/handlers/grep_files.c \
+	  src/tools/handlers/apply_patch.c \
+	  src/tools/handlers/edit_file.c \
+	  src/tools/handlers/create_file.c \
+	  src/orchestrator/orchestrator.c \
 
 OBJ = $(SRC:src/%.c=$(BUILD_DIR)/%.o)
 

@@ -34,4 +34,6 @@ struct tool_registry {
 
 const struct tool_registry_entry *tool_registry_find(struct tool_registry registry, const char *name);
 
+void tool_result_set_error(struct tool_result *out, const char *message);
+
  #endif

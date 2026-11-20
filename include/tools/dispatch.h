@@ -4,6 +4,6 @@
 #include "provider/llamacpp.h"
 #include "tools/registry.h"
 
-int dispatch_tool_call(struct tool_registry registry, struct llm_tool_call *call, struct tool_result *out);
+int dispatch_tool_call(struct tool_registry registry, struct tool_context context, struct llm_tool_call *call, struct tool_result *out);
 
 #endif

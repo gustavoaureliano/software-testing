@@ -27,6 +27,7 @@ static int copy_json_string(const cJSON  *node, char *dest, size_t dest_capacity
 static int parse_tool_calls(const cJSON *tool_calls, struct  llm_response *out);
 static cJSON *build_tools_json(const struct tool_registry registry);
 static const char *tool_choice_mode_to_string(enum llm_tool_choice_mode mode);
+static cJSON *build_tool_calls_json(const struct llm_tool_call *tool_calls, size_t tool_call_count);
 
 int llm_chat(const char *base_url, const char *model, const struct llm_message_list messages, const struct tool_registry registry, enum llm_tool_choice_mode tool_choice, char *raw_response, size_t raw_response_capacity, struct llm_response *out) {
 	int ret = 1;
@@ -46,8 +47,18 @@ int llm_chat(const char *base_url, const char *model, const struct llm_message_l
 	if (raw_response_capacity == 0) { goto cleanup; }
 	if (out == NULL) { goto cleanup; }
 	for (size_t i = 0; i < messages.count; i++) {
-		if (messages.items[i].role == NULL) { goto cleanup; }
-		if (messages.items[i].content == NULL) { goto cleanup; }
+		const struct llm_message *message = &messages.items[i];
+		if (message->role == NULL) { goto cleanup; }
+		if (strcmp(message->role, "assistant") == 0 && message->tool_call_count > 0) {
+			if (message->content != NULL) { goto cleanup; }
+			if (message->tool_calls == NULL) { goto cleanup; }
+			continue;
+		}
+		if (message->content == NULL) { goto cleanup; }
+		if (strcmp(message->role, "tool") == 0) {
+			if (message->tool_call_id == NULL) { goto cleanup; }
+			if (strlen(message->tool_call_id) == 0) { goto cleanup; }
+		}
 	}
 	if (registry.count > 0 && registry.items == NULL) { goto cleanup; }
 	if (tool_choice != LLM_TOOL_CHOICE_NONE && registry.count == 0) { goto cleanup; }
@@ -146,10 +157,53 @@ cleanup:
 	return ret;
 }
 
+static cJSON *build_tool_calls_json(const struct llm_tool_call *tool_calls, size_t tool_call_count) {
+	cJSON *array = NULL;
+	if (tool_calls == NULL) { return  NULL; }
+	if (tool_call_count == 0) { return NULL; }
+	array = cJSON_CreateArray();
+	if (array == NULL) { return NULL; }
+	for (size_t i = 0; i < tool_call_count; i++) {
+		cJSON *tool_call = NULL;
+		cJSON *function = NULL;
+		if (strlen(tool_calls[i].id) == 0) { goto cleanup; }
+		if (strlen(tool_calls[i].name) == 0) { goto cleanup; }
+		if (strlen(tool_calls[i].arguments) == 0) { goto cleanup; }
+		tool_call = cJSON_CreateObject();
+		if (tool_call == NULL) { goto cleanup; }
+		if (cJSON_AddStringToObject(tool_call, "id", tool_calls[i].id) == NULL) {
+			goto cleanup_tool_call;
+		}
+		if (cJSON_AddStringToObject(tool_call, "type", "function") == NULL) {
+			goto cleanup_tool_call;
+		}
+		if ((function = cJSON_AddObjectToObject(tool_call, "function")) == NULL) {
+			goto cleanup_tool_call;
+		}
+		if (cJSON_AddStringToObject(function, "name", tool_calls[i].name) == NULL) {
+			goto cleanup_tool_call;
+		}
+		if (cJSON_AddStringToObject(function, "arguments", tool_calls[i].arguments) == NULL) {
+			goto cleanup_tool_call;
+		}
+		if (!cJSON_AddItemToArray(array, tool_call)) {
+			goto cleanup_tool_call;
+		}
+		continue;
+cleanup_tool_call:
+		cJSON_Delete(tool_call);
+		goto cleanup;
+	}
+	return array;
+cleanup:
+	cJSON_Delete(array);
+	return NULL;
+}
+
 static const char *tool_choice_mode_to_string(enum llm_tool_choice_mode mode) {
 	switch (mode) {
 		case LLM_TOOL_CHOICE_NONE:
-			return NULL;
+			return "none";
 		case LLM_TOOL_CHOICE_AUTO:
 			return "auto";
 		case LLM_TOOL_CHOICE_REQUIRED:
@@ -205,11 +259,16 @@ cleanup:
 static int parse_tool_calls(const cJSON *tool_calls, struct  llm_response *out) {
 	if (out == NULL) { return 1; }
 	out->tool_call_count = 0;
+	out->tool_calls_truncated = false;
 	if (tool_calls == NULL) { return 0; }
 	if (!cJSON_IsArray(tool_calls)) { return 1; }
 	int array_size = cJSON_GetArraySize(tool_calls);
-	for (int i = 0; i < array_size; i++) {
-		if (out->tool_call_count >= 8) { return 1; }
+	int calls_to_parse = array_size;
+	if (calls_to_parse > LLM_MAX_TOOL_CALLS) {
+		calls_to_parse = LLM_MAX_TOOL_CALLS;
+		out->tool_calls_truncated = true;
+	}
+	for (int i = 0; i < calls_to_parse; i++) {
 		const cJSON *tool_call = cJSON_GetArrayItem(tool_calls, i);
 		const cJSON *id;
 		const cJSON *function;
@@ -340,17 +399,39 @@ static cJSON *build_chat_request_json(const char *model, const struct llm_messag
 	messages_array = cJSON_AddArrayToObject(root, "messages");
 	if (messages_array == NULL) { goto cleanup; }
 	for (size_t i = 0; i < messages.count; i++) {
-		cJSON *message = cJSON_CreateObject();
-		if (message == NULL) { goto cleanup; }
-		if (messages.items[i].role == NULL) { goto cleanup_message; }
-		if (messages.items[i].content == NULL) { goto cleanup_message; }
-		if (cJSON_AddStringToObject(message, "role", messages.items[i].role) == NULL) {
+		const struct llm_message *input_message = &messages.items[i];
+		cJSON *message = NULL;
+		cJSON *tool_calls = NULL;
+		if ((message = cJSON_CreateObject()) == NULL) { goto cleanup; }
+		if (input_message->role == NULL) { goto cleanup_message; }
+		if (cJSON_AddStringToObject(message, "role", input_message->role) == NULL) {
 			goto cleanup_message;
 		}
-		if (cJSON_AddStringToObject(message, "content", messages.items[i].content) == NULL) {
+		if (strcmp(input_message->role, "assistant") == 0 && input_message->tool_call_count > 0) {
+			if (!cJSON_AddNullToObject(message, "content")) {
+				goto cleanup_message;
+			}
+			tool_calls = build_tool_calls_json(input_message->tool_calls, input_message->tool_call_count);
+			if (tool_calls == NULL) { goto cleanup_message; }
+			if (!cJSON_AddItemToObject(message, "tool_calls", tool_calls)) {
+				cJSON_Delete(tool_calls);
+				goto cleanup_message;
+			}
+			tool_calls = NULL;
+		} else {
+			if (input_message->content == NULL) { goto cleanup_message; }
+			if (cJSON_AddStringToObject(message, "content", input_message->content) == NULL) {
+				goto cleanup_message;
+			}
+		}
+		if (input_message->tool_call_id != NULL) {
+			if (cJSON_AddStringToObject(message, "tool_call_id", input_message->tool_call_id) == NULL) {
+				goto cleanup_message;
+			}
+		}
+		if (!cJSON_AddItemToArray(messages_array, message)) {
 			goto cleanup_message;
 		}
-		cJSON_AddItemToArray(messages_array, message);
 		continue;
 cleanup_message:
 		cJSON_Delete(message);
